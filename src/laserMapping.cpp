@@ -873,8 +873,9 @@ int main(int argc, char** argv)
             }
             int featsFromMapNum = ikdtree.validnum();
             kdtree_size_st = ikdtree.size();
-            
-            // cout<<"[ mapping ]: In num: "<<feats_undistort->points.size()<<" downsamp "<<feats_down_size<<" Map num: "<<featsFromMapNum<<"effect num:"<<effct_feat_num<<endl;
+
+            cout << "[ mapping ]: In num: " << feats_undistort->points.size() << " downsamp " << feats_down_size
+                 << " Map num: " << featsFromMapNum << "effect num:" << effct_feat_num << endl;
 
             /*** ICP and iterated Kalman filter update ***/
             normvec->resize(feats_down_size);
