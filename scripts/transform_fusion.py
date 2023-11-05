@@ -14,6 +14,8 @@ import tf.transformations
 from geometry_msgs.msg import Pose, Point, Quaternion
 from nav_msgs.msg import Odometry
 
+# from nav_msgs.msg import Path
+
 cur_odom_to_baselink = None
 cur_map_to_odom = None
 
@@ -60,7 +62,6 @@ def transform_fusion():
             # rospy.loginfo_throttle(1, '{}'.format(np.matmul(T_map_to_odom, T_odom_to_base_link)))
             pub_localization.publish(localization)
 
-
 def cb_save_cur_odom(odom_msg):
     global cur_odom_to_baselink
     cur_odom_to_baselink = odom_msg
@@ -80,7 +81,7 @@ if __name__ == '__main__':
 
     rospy.Subscriber('/Odometry', Odometry, cb_save_cur_odom, queue_size=1)
     rospy.Subscriber('/map_to_odom', Odometry, cb_save_map_to_odom, queue_size=1)
-
+    # pub_path = rospy.Publisher('/base_path', Path, queue_size=10)
     pub_localization = rospy.Publisher('/localization', Odometry, queue_size=1)
 
     # 发布定位消息
