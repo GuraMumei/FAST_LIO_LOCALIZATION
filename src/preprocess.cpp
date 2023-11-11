@@ -154,10 +154,7 @@ void Preprocess::avia_handler(const livox_ros_driver::CustomMsg::ConstPtr &msg)
               || (abs(pl_full[i].z - pl_full[i-1].z) > 1e-7)
               && (pl_full[i].x * pl_full[i].x + pl_full[i].y * pl_full[i].y > blind))
           {
-            if(pl_full[i].x * pl_full[i].x + pl_full[i].y * pl_full[i].y < max_scan_range * max_scan_range){
-                pl_surf.push_back(pl_full[i]);
-            }
-//            pl_surf.push_back(pl_full[i]);
+            pl_surf.push_back(pl_full[i]);
           }
         }
       }
@@ -266,6 +263,8 @@ void Preprocess::oust64_handler(const sensor_msgs::PointCloud2::ConstPtr &msg)
   // pub_func(pl_surf, pub_corn, msg->header.stamp);
 }
 
+#define MAX_LINE_NUM 64
+
 void Preprocess::velodyne_handler(const sensor_msgs::PointCloud2::ConstPtr &msg)
 {
     pl_surf.clear();
@@ -277,13 +276,11 @@ void Preprocess::velodyne_handler(const sensor_msgs::PointCloud2::ConstPtr &msg)
     int plsize = pl_orig.points.size();
     pl_surf.reserve(plsize);
 
-    /*** These variables only works when no point timestamps given ***/
+    bool is_first[MAX_LINE_NUM];
+    double yaw_fp[MAX_LINE_NUM]={0};     // yaw of first scan point
     double omega_l=3.61;       // scan angular velocity
-    std::vector<bool> is_first(N_SCANS,true);
-    std::vector<double> yaw_fp(N_SCANS, 0.0);      // yaw of first scan point
-    std::vector<float> yaw_last(N_SCANS, 0.0);   // yaw of last scan point
-    std::vector<float> time_last(N_SCANS, 0.0);  // last offset time
-    /*****************************************************************/
+    float yaw_last[MAX_LINE_NUM]={0.0};  // yaw of last scan point
+    float time_last[MAX_LINE_NUM]={0.0}; // last offset time
 
     if (pl_orig.points[plsize - 1].time > 0)
     {
@@ -292,6 +289,7 @@ void Preprocess::velodyne_handler(const sensor_msgs::PointCloud2::ConstPtr &msg)
     else
     {
       given_offset_time = false;
+      memset(is_first, true, sizeof(is_first));
       double yaw_first = atan2(pl_orig.points[0].y, pl_orig.points[0].x) * 57.29578;
       double yaw_end  = yaw_first;
       int layer_first = pl_orig.points[0].ring;

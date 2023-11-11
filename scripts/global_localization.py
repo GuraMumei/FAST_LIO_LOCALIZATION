@@ -1,27 +1,27 @@
-#!/usr/bin/env python2
+#!/usr/bin/env python3
 # coding=utf8
 from __future__ import print_function, division, absolute_import
 
+import _thread
 import copy
-import thread
 import time
 
+import numpy as np
 import open3d as o3d
-import rospy
 import ros_numpy
+import rospy
+import tf
+import tf.transformations
 from geometry_msgs.msg import PoseWithCovarianceStamped, Pose, Point, Quaternion
 from nav_msgs.msg import Odometry
 from sensor_msgs.msg import PointCloud2
-import numpy as np
-import tf
-import tf.transformations
 
 global_map = None
 initialized = False
 T_map_to_odom = np.eye(4)
 cur_odom = None
 cur_scan = None
-
+relocate_times = 0
 
 def pose_to_mat(pose_msg):
     return np.matmul(
@@ -40,11 +40,11 @@ def msg_to_array(pc_msg):
 
 
 def registration_at_scale(pc_scan, pc_map, initial, scale):
-    result_icp = o3d.registration.registration_icp(
+    result_icp = o3d.pipelines.registration.registration_icp(
         voxel_down_sample(pc_scan, SCAN_VOXEL_SIZE * scale), voxel_down_sample(pc_map, MAP_VOXEL_SIZE * scale),
         1.0 * scale, initial,
-        o3d.registration.TransformationEstimationPointToPoint(),
-        o3d.registration.ICPConvergenceCriteria(max_iteration=20)
+        o3d.pipelines.registration.TransformationEstimationPointToPoint(),
+        o3d.pipelines.registration.ICPConvergenceCriteria(max_iteration=20)
     )
 
     return result_icp.transformation, result_icp.fitness
@@ -114,7 +114,7 @@ def crop_global_map_in_FOV(global_map, pose_estimation, cur_odom):
 
 
 def global_localization(pose_estimation):
-    global global_map, cur_scan, cur_odom, T_map_to_odom
+    global global_map, cur_scan, cur_odom, T_map_to_odom, relocate_times
     # 用icp配准
     # print(global_map, cur_scan, T_map_to_odom)
     rospy.loginfo('Global localization by scan-to-map matching......')
@@ -125,7 +125,6 @@ def global_localization(pose_estimation):
     tic = time.time()
 
     global_map_in_FOV = crop_global_map_in_FOV(global_map, pose_estimation, cur_odom)
-
     # 粗配准
     transformation, _ = registration_at_scale(scan_tobe_mapped, global_map_in_FOV, initial=pose_estimation, scale=5)
 
@@ -149,11 +148,13 @@ def global_localization(pose_estimation):
         map_to_odom.header.stamp = cur_odom.header.stamp
         map_to_odom.header.frame_id = 'map'
         pub_map_to_odom.publish(map_to_odom)
+        relocate_times = 0
         return True
     else:
         rospy.logwarn('Not match!!!!')
         rospy.logwarn('{}'.format(transformation))
         rospy.logwarn('fitness score:{}'.format(fitness))
+        relocate_times += 1
         return False
 
 
@@ -219,7 +220,7 @@ if __name__ == '__main__':
     LOCALIZATION_TH = 0.95
 
     # FOV(rad), modify this according to your LiDAR type
-    FOV = 1.6
+    FOV = 360
 
     # The farthest distance(meters) within FOV
     FOV_FAR = 150
@@ -237,24 +238,73 @@ if __name__ == '__main__':
 
     # 初始化全局地图
     rospy.logwarn('Waiting for global map......')
-    initialize_global_map(rospy.wait_for_message('/map', PointCloud2))
+    initialize_global_map(rospy.wait_for_message('/offline_map', PointCloud2))
 
     # 初始化
     while not initialized:
-        rospy.logwarn('Waiting for initial pose....')
+        # rospy.logwarn('Waiting for initial pose....')
+        #
+        # # 等待初始位姿
+        # pose_msg = rospy.wait_for_message('/initialpose', PoseWithCovarianceStamped)
+        # initial_pose = pose_to_mat(pose_msg)
+        # if cur_scan:
+        #     initialized = global_localization(initial_pose)
+        # else:
+        #     rospy.logwarn('First scan not received!!!!!')
+        pose_x = rospy.get_param("initial_pose/pose_x", 0.0)
+        pose_y = rospy.get_param("initial_pose/pose_y", 0.0)
+        pose_z = rospy.get_param("initial_pose/pose_z", 0.0)
+        pose_roll = rospy.get_param("initial_pose/pose_roll", 0.0)
+        pose_pitch = rospy.get_param("initial_pose/pose_pitch", 0.0)
+        pose_yaw = rospy.get_param("initial_pose/pose_yaw", 0.0)
 
-        # 等待初始位姿
-        pose_msg = rospy.wait_for_message('/initialpose', PoseWithCovarianceStamped)
+        # 转换为pose
+        quat = tf.transformations.quaternion_from_euler(pose_roll, pose_pitch, pose_yaw)
+        xyz = [pose_x, pose_y, pose_z]
+
+        pose_msg = PoseWithCovarianceStamped()
+        pose_msg.pose.pose = Pose(Point(*xyz), Quaternion(*quat))
+
         initial_pose = pose_to_mat(pose_msg)
         if cur_scan:
             initialized = global_localization(initial_pose)
-        else:
-            rospy.logwarn('First scan not received!!!!!')
 
     rospy.loginfo('')
     rospy.loginfo('Initialize successfully!!!!!!')
     rospy.loginfo('')
     # 开始定期全局定位
-    thread.start_new_thread(thread_localization, ())
+    _thread.start_new_thread(thread_localization, ())
 
     rospy.spin()
+
+# 这段代码是一个ROS（Robot Operating System）节点，用于在移动机器人上实现全局定位功能。它使用了Python编程语言，主要依赖于Open3D库来处理点云数据以进行全局定位。
+#
+# 以下是代码的主要部分和功能：
+#
+# 1. 导入所需的库和模块，包括ROS消息、Open3D、NumPy等。
+#
+# 2. 定义全局变量 `global_map`，用于存储全局地图点云数据；`initialized` 用于标志是否已经完成初始化；`T_map_to_odom` 存储地图到里程计坐标系的变换；`cur_odom` 存储当前里程计数据；`cur_scan` 存储当前激光扫描数据。
+#
+# 3. 定义一些辅助函数，如 `pose_to_mat` 用于将位姿消息转换为变换矩阵，`msg_to_array` 用于将ROS消息中的点云数据转换为NumPy数组等。
+#
+# 4. `registration_at_scale` 函数执行点云配准操作，使用ICP算法将当前扫描数据与全局地图配准，并返回变换矩阵和匹配度。
+#
+# 5. `inverse_se3` 函数用于计算SE(3)变换的逆变换。
+#
+# 6. `publish_point_cloud` 函数用于发布点云数据。
+#
+# 7. `crop_global_map_in_FOV` 函数用于将全局地图数据裁剪为当前激光扫描视场内的点云。
+#
+# 8. `global_localization` 函数是全局定位的主要逻辑，它首先裁剪全局地图，然后进行点云配准，如果匹配度高于阈值（`LOCALIZATION_TH`），则更新地图到里程计的变换，并发布地图到里程计的变换。
+#
+# 9. `voxel_down_sample` 函数用于对点云数据进行下采样。
+#
+# 10. `initialize_global_map` 函数用于初始化全局地图。
+#
+# 11. `cb_save_cur_odom` 和 `cb_save_cur_scan` 是回调函数，用于保存当前里程计和激光扫描数据。
+#
+# 12. `thread_localization` 函数是一个线程函数，定期执行全局定位操作。
+#
+# 13. 在主函数中，定义了一些常量和参数，初始化ROS节点，设置消息发布者和订阅者，等待全局地图数据，执行初始化操作，然后启动全局定位线程。
+#
+# 此代码的主要目标是在移动机器人上实现全局定位，通过将当前激光扫描数据与全局地图进行匹配，从而估计机器人的全局位置。全局地图的数据来自 `/offline_map` 主题，激光扫描数据来自 `/cloud_registered` 主题。如果全局定位成功，将发布地图到里程计的变换。
