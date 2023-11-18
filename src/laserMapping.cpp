@@ -91,27 +91,30 @@ string map_file_path, lid_topic, imu_topic, keyFrame_topic, keyFrame_id_topic;
 double res_mean_last = 0.05, total_residual = 0.0;
 double last_timestamp_lidar = 0, last_timestamp_imu = -1.0;
 double gyr_cov = 0.1, acc_cov = 0.1, b_gyr_cov = 0.0001, b_acc_cov = 0.0001;
-double filter_size_corner_min = 0, filter_size_surf_min = 0, filter_size_map_min = 0, fov_deg = 0;
-double cube_len = 0, HALF_FOV_COS = 0, FOV_DEG = 0, total_distance = 0, lidar_end_time = 0, first_lidar_time = 0.0;
-int    effct_feat_num = 0, time_log_counter = 0, scan_count = 0, publish_count = 0;
-int    iterCount = 0, feats_down_size = 0, NUM_MAX_ITERATIONS = 0, laserCloudValidNum = 0;
-bool   point_selected_surf[100000] = {0};
-bool   lidar_pushed, flg_reset, flg_exit = false, flg_EKF_inited;
-bool   scan_pub_en = false, dense_pub_en = false, scan_body_pub_en = false;
-bool    recontructKdTree = false;
-bool    updateState = false;
-int     updateFrequency = 100;
+double filter_size_corner_min = 0, filter_size_surf_min = 0,
+       filter_size_map_min = 0, fov_deg = 0;
+double cube_len = 0, HALF_FOV_COS = 0, FOV_DEG = 0, total_distance = 0,
+       lidar_end_time = 0, first_lidar_time = 0.0;
+int effct_feat_num = 0, time_log_counter = 0, scan_count = 0, publish_count = 0;
+int iterCount = 0, feats_down_size = 0, NUM_MAX_ITERATIONS = 0,
+    laserCloudValidNum = 0;
+bool point_selected_surf[100000] = {0};
+bool lidar_pushed, flg_reset, flg_exit = false, flg_EKF_inited;
+bool scan_pub_en = false, dense_pub_en = true, scan_body_pub_en = false;
+bool recontructKdTree = false;
+bool updateState = false;
+int updateFrequency = 100;
 
 // visualize
 bool visulize_map = false;
 
-vector<vector<int>>  pointSearchInd_surf;
+vector<vector<int>> pointSearchInd_surf;
 vector<BoxPointType> cub_needrm;
-vector<PointVector>  Nearest_Points;
-vector<double>       extrinT(3, 0.0);
-vector<double>       extrinR(9, 0.0);
-deque<double>                     time_buffer;
-deque<PointCloudXYZI::Ptr>        lidar_buffer;
+vector<PointVector> Nearest_Points;
+vector<double> extrinT(3, 0.0);
+vector<double> extrinR(9, 0.0);
+deque<double> time_buffer;
+deque<PointCloudXYZI::Ptr> lidar_buffer;
 deque<sensor_msgs::Imu::ConstPtr> imu_buffer;
 
 PointCloudXYZI::Ptr featsFromMap(new PointCloudXYZI());
@@ -349,19 +352,23 @@ void livox_pcl_cbk(const livox_ros_driver::CustomMsg::ConstPtr &msg)
     }
     last_timestamp_lidar = msg->header.stamp.toSec();
 
-    if (!time_sync_en && abs(last_timestamp_imu - lidar_end_time) > 10.0)
-    {
-        printf("IMU and LiDAR not Synced, IMU time: %lf, lidar scan end time: %lf",last_timestamp_imu, lidar_end_time);
+    if (!time_sync_en && abs(last_timestamp_imu - lidar_end_time) > 10.0) {
+        printf(
+            "IMU and LiDAR not Synced, IMU time: %lf, lidar scan end time: %lf",
+            last_timestamp_imu, lidar_end_time);
     }
 
-    if (time_sync_en && !timediff_set_flg && abs(last_timestamp_lidar - last_timestamp_imu) > 1 && !imu_buffer.empty())
-    {
+    if (time_sync_en && !timediff_set_flg &&
+        abs(last_timestamp_lidar - last_timestamp_imu) > 1 &&
+        !imu_buffer.empty()) {
         timediff_set_flg = true;
-        timediff_lidar_wrt_imu = last_timestamp_lidar + 0.1 - last_timestamp_imu;
-        printf("Self sync IMU and LiDAR, time diff is %.10lf \n", timediff_lidar_wrt_imu);
+        timediff_lidar_wrt_imu =
+            last_timestamp_lidar + 0.1 - last_timestamp_imu;
+        printf("Self sync IMU and LiDAR, time diff is %.10lf \n",
+               timediff_lidar_wrt_imu);
     }
 
-    PointCloudXYZI::Ptr  ptr(new PointCloudXYZI());
+    PointCloudXYZI::Ptr ptr(new PointCloudXYZI());
     p_pre->process(msg, ptr);
     lidar_buffer.push_back(ptr);
     time_buffer.push_back(last_timestamp_lidar);
@@ -876,60 +883,68 @@ int main(int argc, char** argv)
     p_imu->set_acc_bias_cov(V3D(b_acc_cov, b_acc_cov, b_acc_cov));
 
     double epsi[23] = {0.001};
-    fill(epsi, epsi+23, 0.001);
-    kf.init_dyn_share(get_f, df_dx, df_dw, h_share_model, NUM_MAX_ITERATIONS, epsi);
+    fill(epsi, epsi + 23, 0.001);
+    kf.init_dyn_share(get_f, df_dx, df_dw, h_share_model, NUM_MAX_ITERATIONS,
+                      epsi);
 
     /*** debug record ***/
     FILE *fp;
     string pos_log_dir = root_dir + "/Log/pos_log.txt";
-    fp = fopen(pos_log_dir.c_str(),"w");
+    fp = fopen(pos_log_dir.c_str(), "w");
 
     ofstream fout_pre, fout_out, fout_dbg;
-    fout_pre.open(DEBUG_FILE_DIR("mat_pre.txt"),ios::out);
-    fout_out.open(DEBUG_FILE_DIR("mat_out.txt"),ios::out);
-    fout_dbg.open(DEBUG_FILE_DIR("dbg.txt"),ios::out);
+    fout_pre.open(DEBUG_FILE_DIR("mat_pre.txt"), ios::out);
+    fout_out.open(DEBUG_FILE_DIR("mat_out.txt"), ios::out);
+    fout_dbg.open(DEBUG_FILE_DIR("dbg.txt"), ios::out);
     if (fout_pre && fout_out)
-        cout << "~~~~"<<ROOT_DIR<<" file opened" << endl;
+        cout << "~~~~" << ROOT_DIR << " file opened" << endl;
     else
-        cout << "~~~~"<<ROOT_DIR<<" doesn't exist" << endl;
+        cout << "~~~~" << ROOT_DIR << " doesn't exist" << endl;
 
     /*** ROS subscribe initialization ***/
-    ros::Subscriber sub_pcl = p_pre->lidar_type == AVIA ? \
-        nh.subscribe(lid_topic, 200000, livox_pcl_cbk) : \
-        nh.subscribe(lid_topic, 200000, standard_pcl_cbk);
+    ros::Subscriber sub_pcl =
+        p_pre->lidar_type == AVIA
+            ? nh.subscribe(lid_topic, 200000, livox_pcl_cbk)
+            : nh.subscribe(lid_topic, 200000, standard_pcl_cbk);
     ros::Subscriber sub_imu = nh.subscribe(imu_topic, 200000, imu_cbk);
-    ros::Subscriber sub_keyframes = nh.subscribe(keyFrame_topic, 10, keyFrame_cbk);
-    ros::Subscriber sub_keyframes_id = nh.subscribe(keyFrame_id_topic, 10, keyFrame_id_cbk);
-    ros::Subscriber pose_from_gimbal = nh.subscribe<geometry_msgs::PoseStamped>("/pose_from_client", 1, pose_from_client_cbk);
-    ros::Subscriber pose_from_radar = nh.subscribe<geometry_msgs::PoseStamped>("/pose_from_radar", 1, pose_from_radar_cbk);
-    ros::Publisher pubLaserCloudFull = nh.advertise<sensor_msgs::PointCloud2>
-            ("/cloud_registered", 100000);
-    ros::Publisher pubLaserCloudFull_body = nh.advertise<sensor_msgs::PointCloud2>
-            ("/cloud_registered_body", 100000);
-    ros::Publisher pubLaserCloudFull_lidar = nh.advertise<sensor_msgs::PointCloud2>
-            ("/cloud_registered_lidar", 100000);
-    ros::Publisher pubLaserCloudEffect = nh.advertise<sensor_msgs::PointCloud2>
-            ("/cloud_effected", 100000);
-    ros::Publisher pubLaserCloudMap = nh.advertise<sensor_msgs::PointCloud2>
-            ("/Laser_map", 100000);
-    ros::Publisher pubKeyFramesMap = nh.advertise<sensor_msgs::PointCloud2>
-            ("/Keyframes_map", 100000);
-    ros::Publisher pubOdomAftMapped = nh.advertise<nav_msgs::Odometry>
-            ("/Odometry", 100000);
-    ros::Publisher pubPath          = nh.advertise<nav_msgs::Path>
-            ("/path", 100000);
-    ros::Publisher pubPath_updated          = nh.advertise<nav_msgs::Path>
-            ("/path_updated", 100000);
-//------------------------------------------------------------------------------------------------------
+    ros::Subscriber sub_keyframes =
+        nh.subscribe(keyFrame_topic, 10, keyFrame_cbk);
+    ros::Subscriber sub_keyframes_id =
+        nh.subscribe(keyFrame_id_topic, 10, keyFrame_id_cbk);
+    ros::Subscriber pose_from_gimbal = nh.subscribe<geometry_msgs::PoseStamped>(
+        "/pose_from_client", 1, pose_from_client_cbk);
+    ros::Subscriber pose_from_radar = nh.subscribe<geometry_msgs::PoseStamped>(
+        "/pose_from_radar", 1, pose_from_radar_cbk);
+    ros::Publisher pubLaserCloudFull =
+        nh.advertise<sensor_msgs::PointCloud2>("/cloud_registered", 100000);
+    ros::Publisher pubLaserCloudFull_body =
+        nh.advertise<sensor_msgs::PointCloud2>("/cloud_registered_body",
+                                               100000);
+    ros::Publisher pubLaserCloudFull_lidar =
+        nh.advertise<sensor_msgs::PointCloud2>("/cloud_registered_lidar",
+                                               100000);
+    ros::Publisher pubLaserCloudEffect =
+        nh.advertise<sensor_msgs::PointCloud2>("/cloud_effected", 100000);
+    ros::Publisher pubLaserCloudMap =
+        nh.advertise<sensor_msgs::PointCloud2>("/Laser_map", 100000);
+    ros::Publisher pubKeyFramesMap =
+        nh.advertise<sensor_msgs::PointCloud2>("/Keyframes_map", 100000);
+    ros::Publisher pubOdomAftMapped =
+        nh.advertise<nav_msgs::Odometry>("/Odometry", 100000);
+    ros::Publisher pubPath = nh.advertise<nav_msgs::Path>("/path", 100000);
+    ros::Publisher pubPath_updated =
+        nh.advertise<nav_msgs::Path>("/path_updated", 100000);
+    //------------------------------------------------------------------------------------------------------
     signal(SIGINT, SigHandle);
     ros::Rate rate(5000);
     bool status = ros::ok();
     uint32_t count = 1;
-    while (status)
-    {
-        if (flg_exit) break;
+    while (status) {
+        if (flg_exit)
+            break;
         ros::spinOnce();
-        // 接收关键帧, 一直循环直到其中一个为空（理论上应该是idKeyFramesBuff先空）
+        // 接收关键帧,
+        // 一直循环直到其中一个为空（理论上应该是idKeyFramesBuff先空）
         {
             while( !cloudBuff.empty() && !idKeyFramesBuff.empty() ){
                 while( idKeyFramesBuff.front() > cloudBuff.front().first )
